@@ -34,6 +34,7 @@ int		connectudp = 1;			/* connect UDP client */
 int		crlf;				/* convert newline to CR/LF & vice versa */
 int		debug;				/* SO_DEBUG */
 int		dofork;				/* concurrent server, do a fork() */
+int		domain = AF_INET;		/* protocol family; IPv4 is the default */
 int		dontroute;			/* SO_DONTROUTE */
 char		foreignip[32];			/* foreign IP address, dotted-decimal string */
 int		foreignport;			/* foreign port number */
@@ -77,6 +78,7 @@ int		verbose;			/* each -v increments this by 1 */
 int		usewritev;			/* use writev() instead of write() */
 
 struct sockaddr_in	cliaddr, servaddr;
+struct sockaddr_in6	cli6addr, serv6addr;
 
 static void	usage(const char *);
 
@@ -88,15 +90,21 @@ main(int argc, char *argv[])
 
 	if (argc < 2)
 		usage("");
-
 	opterr = 0;		/* don't want getopt() writing to stderr */
-	while ( (c = getopt(argc, argv, "2b:cf:g:hij:kl:n:op:q:r:st:uvw:x:y:ABCDEFG:H:IJ:KL:NO:P:Q:R:S:TU:VWX:YZ")) != -1) {
+	while ( (c = getopt(argc, argv, "246b:cf:g:hij:kl:n:op:q:r:st:uvw:x:y:ABCDEFG:H:IJ:KL:NO:P:Q:R:S:TU:VWX:YZ")) != -1) {
 		switch (c) {
 #ifdef	IP_ONESBCAST
 		case '2':			/* use 255.255.255.255 as broadcast address */
 			onesbcast = 1;
 			break;
 #endif
+
+		case '4':			/* IPv4 host is the default */
+			break;
+
+		case '6':			/* IPv6 host */
+			domain = AF_INET6; 
+			break;
 
 		case 'b':
 			bindport = atoi(optarg);
@@ -318,12 +326,18 @@ main(int argc, char *argv[])
 		usage("can't specify -L and -u");
 	if (udp && nodelay)
 		usage("can't specify -N and -u");
+	if (udp && domain == AF_INET6)
+		usage("can't specify -6 and -u");
 #ifdef	notdef
 	if (udp == 0 && broadcast)
 		usage("can't specify -B with TCP");
 #endif
 	if (udp == 0 && foreignip[0] != 0)
 		usage("can't specify -f with TCP");
+	if (domain == AF_INET6 && localip[0] != 0)
+		usage("can't specify -l and -6");
+	if (domain == AF_INET6 && foreignip[0] != 0)
+		usage("can't specify -f and -6");
 
 	if (client) {
 		if (optind != argc-2)
@@ -345,9 +359,9 @@ main(int argc, char *argv[])
 	}
 
 	if (client)
-		fd = cliopen(host, port);
+		fd = (domain == AF_INET ? cliopen(host, port) : cli6open(host, port));
 	else
-		fd = servopen(host, port);
+		fd = (domain == AF_INET ? servopen(host, port) : serv6open(host, port));
 
 	if (sourcesink) {		/* ignore stdin/stdout */
 		if (client) {
@@ -439,6 +453,8 @@ usage(const char *msg)
 #ifdef	IP_ONESBCAST
 "         -2    IP_ONESBCAST option (255.255.255.255 for broadcast\n"
 #endif
+"         -4    IPv4 host\n"
+"         -6    IPv6 host\n"
 );
 
 	if (msg[0] != 0)

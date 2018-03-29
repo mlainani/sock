@@ -39,7 +39,7 @@ void buffers(int sockfd)
 		if (getsockopt(sockfd, SOL_SOCKET, SO_RCVBUF, &n, &optlen) < 0)
 			err_sys("SO_RCVBUF getsockopt error");
 		if (n != rcvbuflen)
-			err_quit("error: requested rcvbuflen = %d, resulting SO_RCVBUF = %d", rcvbuflen, n);
+			err_msg("warning: requested rcvbuflen = %d, resulting SO_RCVBUF = %d", rcvbuflen, n);
 		if (verbose)
 			fprintf(stderr, "SO_RCVBUF = %d\n", n);
 	}
@@ -53,7 +53,7 @@ void buffers(int sockfd)
 		if (getsockopt(sockfd, SOL_SOCKET, SO_SNDBUF, &n, &optlen) < 0)
 			err_sys("SO_SNDBUF getsockopt error");
 		if (n != sndbuflen)
-			err_quit("error: requested sndbuflen = %d, resulting SO_SNDBUF = %d", sndbuflen, n);
+			err_msg("warning: requested sndbuflen = %d, resulting SO_SNDBUF = %d", sndbuflen, n);
 		if (verbose)
 			fprintf(stderr, "SO_SNDBUF = %d\n", n);
 	}

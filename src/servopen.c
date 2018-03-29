@@ -152,3 +152,146 @@ servopen(char *host, char *port)
 		return(newfd);
 	}
 }
+
+int
+serv6open(char *host, char *port)
+{
+	int					fd, newfd, i, on, pid;
+	char				*protocol;
+	struct in_addr		inaddr;
+	struct servent		*sp;
+
+	protocol = udp ? "udp" : "tcp";
+
+		/* Initialize the socket address structure */
+	bzero(&serv6addr, sizeof(serv6addr));
+	serv6addr.sin6_family      = AF_INET6;
+
+		/* Caller normally wildcards the local Internet address, meaning
+		   a connection will be accepted on any connected interface.
+		   We only allow an IP address for the "host", not a name. */
+	if (host == NULL)
+		serv6addr.sin6_addr = in6addr_any;		/* wildcard */
+	else {
+		if (inet_pton(AF_INET6, host, &serv6addr.sin6_addr) <= 0)
+			err_quit("invalid hostname: %s", host);
+	}
+
+		/* See if "port" is a service name or number */
+	if ( (i = atoi(port)) == 0) {
+		if ( (sp = getservbyname(port, protocol)) == NULL)
+			err_ret("getservbyname() error for: %s/%s", port, protocol);
+
+		serv6addr.sin6_port = sp->s_port;
+	} else
+		serv6addr.sin6_port = htons(i);
+
+	if ( (fd = socket(AF_INET6, udp ? SOCK_DGRAM : SOCK_STREAM, 0)) < 0)
+		err_sys("socket() error");
+
+	if (reuseaddr) {
+		on = 1;
+		if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) < 0)
+			err_sys("setsockopt of SO_REUSEADDR error");
+	}
+
+#ifdef	SO_REUSEPORT
+	if (reuseport) {
+		on = 1;
+		if (setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &on, sizeof(on)) < 0)
+			err_sys("setsockopt of SO_REUSEPORT error");
+	}
+#endif
+
+		/* Bind our well-known port so the client can connect to us. */
+	if (bind(fd, (struct sockaddr *) &serv6addr, sizeof(serv6addr)) < 0)
+		err_sys("can't bind local address");
+
+#if 0
+	join_mcast(fd, &serv6addr);
+#endif
+
+	if (udp) {
+		buffers(fd);
+
+		/* Foreign IPv6 address setting not supported for now */
+#if 0
+		if (foreignip[0] != 0) {	/* connect to foreignip/port# */
+			bzero(&cliaddr, sizeof(cliaddr));
+			if (inet_aton(foreignip, &cliaddr.sin6_addr) == 0)
+				err_quit("invalid IP address: %s", foreignip);
+			cliaddr.sin6_family = AF_INET6;
+			cliaddr.sin6_port   = htons(foreignport);
+				/* connect() for datagram socket doesn't appear to allow
+				   wildcarding of either IP address or port number */
+
+			if (connect(fd, (struct sockaddr *) &cliaddr, sizeof(cliaddr))
+																		  < 0)
+				err_sys("connect() error");
+			
+		}
+#endif
+		sockopts(fd, 1);
+
+		return(fd);		/* nothing else to do */
+	}
+
+	buffers(fd);		/* may set receive buffer size; must do here to get
+						   correct window advertised on SYN */
+	sockopts(fd, 0);	/* only set some socket options for fd */
+
+	listen(fd, listenq);
+
+	if (pauselisten)
+		sleep_us(pauselisten*1000);		/* lets connection queue build up */
+
+	if (dofork)
+		TELL_WAIT();			/* initialize synchronization primitives */
+
+	for ( ; ; ) {
+		i = sizeof(cli6addr);
+		if ( (newfd = accept(fd, (struct sockaddr *) &cli6addr, &i)) < 0)
+			err_sys("accept() error");
+
+		if (dofork) {
+			if ( (pid = fork()) < 0)
+				err_sys("fork error");
+
+			if (pid > 0) {
+				close(newfd);	/* parent closes connected socket */
+				WAIT_CHILD();	/* wait for child to output to terminal */
+				continue;		/* and back to for(;;) for another accept() */
+			} else {
+				close(fd);		/* child closes listening socket */
+			}
+		}
+
+			/* child (or iterative server) continues here */
+		if (verbose) {
+			const char *str;
+			char dst[INET6_ADDRSTRLEN];
+
+				/* Call getsockname() to find local address bound to socket:
+				   local internet address is now determined (if multihomed). */
+			i = sizeof(serv6addr);
+			if (getsockname(newfd, (struct sockaddr *) &serv6addr, &i) < 0)
+				err_sys("getsockname() error");
+
+			str = inet_ntop(AF_INET6, &serv6addr.sin6_addr, dst, INET6_ADDRSTRLEN);
+			fprintf(stderr, "connection on %s.%d ",
+				str == NULL ? "" : str, ntohs(serv6addr.sin6_port));
+			str = inet_ntop(AF_INET6, &cli6addr.sin6_addr, dst, INET6_ADDRSTRLEN);
+			fprintf(stderr, "from %s.%d\n",
+				str == NULL ? "" : str, ntohs(cli6addr.sin6_port));
+		}
+
+		buffers(newfd);		/* setsockopt() again, in case it didn't propagate
+							   from listening socket to connected socket */
+		sockopts(newfd, 1);	/* can set all socket options for this socket */
+
+		if (dofork)
+			TELL_PARENT(getppid());	/* tell parent we're done with terminal */
+
+		return(newfd);
+	}
+}

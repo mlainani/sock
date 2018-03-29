@@ -130,3 +130,115 @@ int cliopen(char *host, char *port)
 	
 	return(fd);
 }
+
+int cli6open(char *host, char *port)
+{
+	int			fd, i, on;
+	char			*protocol;
+	struct servent		*sp;
+
+	protocol = udp ? "udp" : "tcp";
+  
+	/* initialize socket address structure */
+	bzero(&serv6addr, sizeof(serv6addr));
+	serv6addr.sin6_family = AF_INET6;
+  
+	/* see if "port" is a service name or number */
+	if ( (i = atoi(port)) == 0) {
+		if ( (sp = getservbyname(port, protocol)) == NULL)
+			err_quit("getservbyname() error for: %s/%s", port, protocol);
+      
+		serv6addr.sin6_port = sp->s_port;
+	} else
+		serv6addr.sin6_port = htons(i);
+
+	/* 
+	 * For now we assume that if the '-6' command line switch is used then
+	 * the host is a numerical IPv6 address. Using getaddrinfo() may provide
+	 * a way to handle gracefully both the host and port and regardless of
+	 * the address family.
+	 */
+	if (inet_pton(AF_INET6, host, &serv6addr.sin6_addr) <= 0)
+		err_quit("invalid hostname: %s", host);
+
+	if ( (fd = socket(AF_INET6, udp ? SOCK_DGRAM : SOCK_STREAM, 0)) < 0)
+		err_sys("socket() error");
+
+	if (reuseaddr) {
+		on = 1;
+		if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof (on)) < 0)
+			err_sys("setsockopt of SO_REUSEADDR error");
+	}
+
+#ifdef	SO_REUSEPORT
+	if (reuseport) {
+		on = 1;
+		if (setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &on, sizeof (on)) < 0)
+			err_sys("setsockopt of SO_REUSEPORT error");
+	}
+#endif
+
+	/*
+	 * User can specify port number for client to bind.  Only real use
+	 * is to see a TCP connection initiated by both ends at the same time.
+	 * Also, if UDP is being used, we specifically call bind() to assign
+	 * an ephemeral port to the socket.
+	 */
+	
+	if (bindport != 0 || udp) {
+		bzero(&cli6addr, sizeof(cli6addr));
+		cli6addr.sin6_family      = AF_INET6;
+		cli6addr.sin6_port        = htons(bindport);   /* can be 0 */
+		cli6addr.sin6_addr = in6addr_any;	/* wildcard */
+
+		if (bind(fd, (struct sockaddr *) &cli6addr, sizeof(cli6addr)) < 0)
+			err_sys("bind() error");
+	}
+	
+	/* Need to allocate buffers before connect(), since they can affect
+	 * TCP options (window scale, etc.).
+	 */
+	
+	buffers(fd);
+	sockopts(fd, 0);	/* may also want to set SO_DEBUG */
+	
+	/*
+	 * Connect to the server.  Required for TCP, optional for UDP.
+	 */
+	
+	if (udp == 0 || connectudp) {
+		for ( ; ; ) {
+			if (connect(fd, (struct sockaddr *) &serv6addr, sizeof(serv6addr))
+			    == 0)
+				break;		/* all OK */
+			if (errno == EINTR)		/* can happen with SIGIO */
+				continue;
+			if (errno == EISCONN)	/* can happen with SIGIO */
+				break;
+			err_sys("connect() error");
+		}
+	}
+  
+	if (verbose) {
+		const char *str;
+		char dst[INET6_ADDRSTRLEN];
+
+		/* Call getsockname() to find local address bound to socket:
+		   TCP ephemeral port was assigned by connect() or bind();
+		   UDP ephemeral port was assigned by bind(). */
+		i = sizeof(cli6addr);
+		if (getsockname(fd, (struct sockaddr *) &cli6addr, &i) < 0)
+			err_sys("getsockname() error");
+
+		str = inet_ntop(AF_INET6, &cli6addr.sin6_addr, dst, INET6_ADDRSTRLEN);
+		fprintf(stderr, "connected on %s.%d ",
+			str == NULL ? "" : str, ntohs(cli6addr.sin6_port));
+		str = inet_ntop(AF_INET6, &serv6addr.sin6_addr, dst, INET6_ADDRSTRLEN);
+		fprintf(stderr, "to %s.%d\n",
+			str == NULL ? "" : str, ntohs(serv6addr.sin6_port));
+	}
+
+	sockopts(fd, 1);	/* some options get set after connect() */
+	
+	return(fd);
+}

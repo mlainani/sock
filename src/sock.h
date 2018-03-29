@@ -114,6 +114,7 @@ extern int		verbose;
 extern int		usewritev;
 
 extern struct sockaddr_in	cliaddr, servaddr;
+extern struct sockaddr_in6	cli6addr, serv6addr;
 
 /* Earlier versions of gcc under SunOS 4.x have problems passing arguments
    that are structs (as opposed to pointers to structs).  This shows up
@@ -128,6 +129,7 @@ extern struct sockaddr_in	cliaddr, servaddr;
 				/* function prototypes */
 void	buffers(int);
 int     cliopen(char *, char *);
+int     cli6open(char *, char *);
 int	crlf_add(char *, int, const char *, int);
 int	crlf_strip(char *, int, const char *, int);
 void	join_mcast(int, struct sockaddr_in *);
@@ -135,6 +137,7 @@ void	loop_tcp(int);
 void	loop_udp(int);
 void	pattern(char *, int);
 int		servopen(char *, char *);
+int		serv6open(char *, char *);
 void	sink_tcp(int);
 void	sink_udp(int);
 void	source_tcp(int);
